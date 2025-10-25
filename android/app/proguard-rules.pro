@@ -1,0 +1,2 @@
+-keep class id.flutter.plugins.** { *; }
+-keep class com.dexterous.flutterlocalnotifications.** { *; }

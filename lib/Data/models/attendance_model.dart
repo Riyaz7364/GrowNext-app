@@ -1,9 +1,12 @@
 import 'package:equatable/equatable.dart';
+import 'package:grownext/Data/services/timezone_service.dart';
+import 'package:grownext/service_location.dart';
+import 'package:timezone/timezone.dart' as tz;
 
 class AttendanceModel extends Equatable {
   final String? id;
-  final DateTime? startTime;
-  final DateTime? endTime;
+  final tz.TZDateTime? startTime;
+  final tz.TZDateTime? endTime;
   final double? duration;
   final double? startLat;
   final double? startLng;
@@ -12,8 +15,8 @@ class AttendanceModel extends Equatable {
   final String? selfieUrl;
   final double? distanceKm;
   final String? note;
-  final String source;
-  final DateTime? clientCreatedAt;
+  final String? source;
+  final tz.TZDateTime? clientCreatedAt;
 
   const AttendanceModel({
     this.id,
@@ -27,15 +30,15 @@ class AttendanceModel extends Equatable {
     this.selfieUrl,
     this.distanceKm,
     this.note,
-    this.source = "mobile",
+    this.source,
     this.clientCreatedAt,
   });
 
   /// Creates a copy of this model with optional new values.
   AttendanceModel copyWith({
-    String? taskId,
-    DateTime? startTime,
-    DateTime? endTime,
+    String? id,
+    tz.TZDateTime? startTime,
+    tz.TZDateTime? endTime,
     double? duration,
     double? startLat,
     double? startLng,
@@ -45,10 +48,10 @@ class AttendanceModel extends Equatable {
     double? distanceKm,
     String? note,
     String? source,
-    DateTime? clientCreatedAt,
+    tz.TZDateTime? clientCreatedAt,
   }) {
     return AttendanceModel(
-      id: taskId ?? this.id,
+      id: id ?? this.id,
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
       duration: duration ?? this.duration,
@@ -67,19 +70,25 @@ class AttendanceModel extends Equatable {
   /// Converts a JSON map into an [AttendanceModel].
   factory AttendanceModel.fromJson(Map<String, dynamic> json) {
     return AttendanceModel(
-      id: json['id'] as String,
-      startTime: DateTime.parse(json['startTime']),
-      endTime: json['endTime'] != null ? DateTime.parse(json['endTime']) : null,
+      id: json['id'] as String?,
+      startTime: json['startTime'] != null
+          ? sl<TimezoneService>().safeParse(json['startTime'])
+          : null,
+      endTime: json['endTime'] != null
+          ? sl<TimezoneService>().safeParse(json['endTime'])
+          : null,
       duration: (json['duration'] as num?)?.toDouble(),
-      startLat: (json['startLat'] as num).toDouble(),
-      startLng: (json['startLng'] as num).toDouble(),
+      startLat: (json['startLat'] as num?)?.toDouble(),
+      startLng: (json['startLng'] as num?)?.toDouble(),
       endLat: (json['endLat'] as num?)?.toDouble(),
       endLng: (json['endLng'] as num?)?.toDouble(),
-      selfieUrl: json['selfieUrl'] as String,
+      selfieUrl: json['selfieUrl'] as String?,
       distanceKm: (json['distanceKm'] as num?)?.toDouble(),
       note: json['note'] as String?,
-      source: json['source'] as String,
-      clientCreatedAt: DateTime.parse(json['clientCreatedAt']),
+      source: json['source'] as String?,
+      clientCreatedAt: json['clientCreatedAt'] != null
+          ? sl<TimezoneService>().safeParse(json['clientCreatedAt'])
+          : null,
     );
   }
 
@@ -121,8 +130,8 @@ class AttendanceModel extends Equatable {
 
   @override
   String toString() {
-    return 'AttendanceModel(id: $id, '
-        'startTime: $startTime, endTime: $endTime, duration: $duration, '
+    return 'AttendanceModel('
+        'id: $id, startTime: $startTime, endTime: $endTime, duration: $duration, '
         'startLat: $startLat, startLng: $startLng, endLat: $endLat, endLng: $endLng, '
         'selfieUrl: $selfieUrl, distanceKm: $distanceKm, note: $note, '
         'source: $source, clientCreatedAt: $clientCreatedAt)';

@@ -3,7 +3,6 @@ import 'package:flutter_svg/svg.dart';
 import 'package:gap/gap.dart';
 import 'package:get/get.dart';
 import 'package:get/get_core/get_core.dart';
-import 'package:get_x_storage/get_x_storage.dart';
 import 'package:grownext/Data/Controllers/home_controller.dart';
 import 'package:grownext/Data/consts/app_string.dart';
 import 'package:grownext/Data/extenstions/greeting_by_time.dart';
@@ -20,6 +19,7 @@ class AttendanceDialog extends StatelessWidget {
     final controller = Get.find<HomeController>();
 
     return Material(
+      borderRadius: BorderRadius.circular(15),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -29,13 +29,28 @@ class AttendanceDialog extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(15),
+              borderRadius: BorderRadius.circular(16),
             ),
             child: Column(
               children: [
                 Text(
-                  "${sl<UserModel>().name}".greet(),
-                  style: TextStyle(fontSize: 20),
+                  "Attendance",
+                  style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
+                ),
+                Gap(20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SvgPicture.asset(mapPinSVG, width: 20, height: 20),
+
+                    Text("Your current location"),
+                  ],
+                ),
+                Obx(
+                  () => Text(
+                    "${controller.attendanceController.localAreaName}",
+                    style: TextStyle(color: Colors.black),
+                  ),
                 ),
                 const Gap(20),
 
@@ -80,21 +95,6 @@ class AttendanceDialog extends StatelessWidget {
                     ),
                   ),
                 ),
-                Gap(20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SvgPicture.asset(mapPinSVG, width: 20, height: 20),
-
-                    Text("Your current location"),
-                  ],
-                ),
-                Obx(
-                  () => Text(
-                    "${controller.attendanceController.localAreaName}",
-                    style: TextStyle(color: Colors.black),
-                  ),
-                ),
 
                 const Gap(20),
 
@@ -109,25 +109,25 @@ class AttendanceDialog extends StatelessWidget {
                       _timeDisplay(
                         elapsedTime.inHours.toString().padLeft(2, '0'),
                       ),
+                      const Text(":", style: TextStyle(fontSize: 50)),
                       _timeDisplay(
                         elapsedTime.inMinutes
                             .remainder(60)
                             .toString()
                             .padLeft(2, '0'),
                       ),
-                      _timeDisplay(
-                        elapsedTime.inSeconds
-                            .remainder(60)
-                            .toString()
-                            .padLeft(2, '0'),
-                      ),
-                      const Text("HRS", style: TextStyle(fontSize: 15)),
+                      // _timeDisplay(
+                      //   elapsedTime.inSeconds
+                      //       .remainder(60)
+                      //       .toString()
+                      //       .padLeft(2, '0'),
+                      // ),
                     ],
                   );
                 }),
 
                 Gap(20),
-                Row(children: [Text("Todays history")]),
+                Row(children: [Text("Recent activity")]),
                 Gap(10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -177,12 +177,31 @@ class AttendanceDialog extends StatelessWidget {
                       children: [
                         SvgPicture.asset(clockFadingSVG, width: 30, height: 30),
                         Gap(5),
-                        Text(
-                          controller.attendanceController.workHoursTime.value ??
-                              "00:00",
-                          style: TextStyle(fontSize: 12),
+                        Obx(
+                          () => Text(
+                            (controller
+                                    .attendanceController
+                                    .workHoursTime
+                                    .value ??
+                                "00:00"),
+                            style: TextStyle(fontSize: 12),
+                          ),
                         ),
-                        Text("Working hours", style: TextStyle(fontSize: 12)),
+                        Text("Hours worked", style: TextStyle(fontSize: 12)),
+                      ],
+                    ),
+
+                    Column(
+                      children: [
+                        SvgPicture.asset(bikeSVG, width: 30, height: 30),
+                        Gap(5),
+                        Obx(
+                          () => Text(
+                            "${controller.attendanceController.totalDistanceKm.value} KM",
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        Text("Traveled", style: TextStyle(fontSize: 12)),
                       ],
                     ),
                   ],
@@ -195,44 +214,13 @@ class AttendanceDialog extends StatelessWidget {
     );
   }
 
-  Widget _weatherIcon(String type) {
-    if (type == 'sun') {
-      return Column(
-        children: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              SvgPicture.asset(subSVG),
-
-              Container(
-                width: 30,
-                height: 30,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFFAA33),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              // Sun rays
-            ],
-          ),
-        ],
-      );
-    } else {
-      return Column(children: [SvgPicture.asset(cloudSVG)]);
-    }
-  }
-
   Widget _timeDisplay(String value) {
     return Container(
       width: 60,
       height: 60,
-      margin: const EdgeInsets.symmetric(horizontal: 5),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF2F7E1),
-        borderRadius: BorderRadius.circular(8),
-      ),
+
       alignment: Alignment.center,
-      child: Text(value, style: const TextStyle(fontSize: 20)),
+      child: Text(value, style: const TextStyle(fontSize: 50)),
     );
   }
 }

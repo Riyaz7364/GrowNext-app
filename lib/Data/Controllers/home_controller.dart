@@ -1,19 +1,32 @@
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:get/get.dart';
 import 'package:grownext/Data/Controllers/attendance_controller.dart';
+import 'package:grownext/Data/theme/colors.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class HomeController extends GetxController {
   final attendanceController = Get.find<AttendanceController>();
 
-  final dayNames = ["Sun", "Mon", "Tues", "Wed", "Thurs", "Fri", "Sat"];
   final progress = 0.0.obs;
   InAppWebViewController? _webviewController;
 
+  PullToRefreshController? pullToRefreshController;
+
   @override
-  void onInit() async {
-    // TODO: implement onInit
+  void onInit() {
     super.onInit();
+
+    // Initialize pull to refresh controller immediately (synchronously)
+    pullToRefreshController = PullToRefreshController(
+      onRefresh: refreshWebView,
+      settings: PullToRefreshSettings(color: primaryColor),
+    );
+
+    // Run async operations separately
+    _initAsync();
+  }
+
+  Future<void> _initAsync() async {
     await requestPermissions();
     await attendanceController.determinePosition();
   }
@@ -37,6 +50,10 @@ class HomeController extends GetxController {
     _webviewController!.loadUrl(urlRequest: URLRequest(url: WebUri(path)));
   }
 
+  Future<void> runJavascript(String script) async {
+    _webviewController!.evaluateJavascript(source: script);
+  }
+
   Future<void> backHandler(bool didPop, Object? result) async {
     if (_webviewController != null) {
       final canGoBack = await _webviewController!.canGoBack();
@@ -56,7 +73,8 @@ class HomeController extends GetxController {
   }
 
   // Refresh WebView safely
-  void refreshWebView() {
-    _webviewController?.reload();
+  void refreshWebView() async {
+    await _webviewController?.reload();
+    pullToRefreshController?.endRefreshing();
   }
 }

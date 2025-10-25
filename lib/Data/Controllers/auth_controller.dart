@@ -1,13 +1,12 @@
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:get/get.dart';
-import 'package:get_x_storage/get_x_storage.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:grownext/Data/consts/app_string.dart';
 import 'package:grownext/Data/repositories/auth_repo.dart';
 import 'package:grownext/Data/routes.dart';
 import 'package:grownext/service_location.dart';
 import 'package:logger/logger.dart';
-import 'package:uuid/uuid.dart';
 
 class AuthController extends GetxService {
   InAppWebViewController? _loginWebviewController;
@@ -17,15 +16,12 @@ class AuthController extends GetxService {
   final isLoggedIn = false.obs;
   final userEmail = ''.obs;
   final _logger = Logger();
-  final uuid = "".obs;
-  final _storage = sl<GetXStorage>();
+  final _storage = sl<GetStorage>();
 
   @override
-  void onInit() {
+  void onInit() async {
     super.onInit();
-    checkCookieActive();
-    InAppWebViewController.setWebContentsDebuggingEnabled(true);
-    uuid.value = Uuid().v4();
+    await checkCookieActive();
   }
 
   // Handle back navigation inside WebView
@@ -50,7 +46,7 @@ class AuthController extends GetxService {
     );
 
     if (token != null && isLoggedIn.value == false) {
-      _storage.write(key: "token", value: token.value);
+      _storage.write("token", token.value);
       isLoggedIn.value = true;
       checkAuthStatus();
     }
@@ -69,7 +65,7 @@ class AuthController extends GetxService {
         if (token != null &&
             token.toString().isNotEmpty &&
             isLoggedIn.value == false) {
-          _storage.write(key: "token", value: token);
+          _storage.write("token", token);
           isLoggedIn.value = true;
           checkAuthStatus();
         }
@@ -91,7 +87,7 @@ class AuthController extends GetxService {
 
   // Logout
   void logout() {
-    _storage.remove(key: "token");
+    _storage.remove("token");
     isLoggedIn.value = false;
     userEmail.value = '';
     _logger.w("User logged out");
@@ -101,6 +97,7 @@ class AuthController extends GetxService {
   void checkAuthStatus() async {
     try {
       await sl<IAuthRepository>().getUser();
+
       Get.offAndToNamed(homePage);
     } catch (error) {
       Fluttertoast.showToast(msg: error.toString());
@@ -113,6 +110,6 @@ class AuthController extends GetxService {
   Map<String, dynamic> get userInfo => {
     'email': userEmail.value,
     'isLoggedIn': isLoggedIn.value,
-    'token': _storage.read(key: "token"),
+    'token': _storage.read("token"),
   };
 }

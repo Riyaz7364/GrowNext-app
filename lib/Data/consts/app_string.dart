@@ -23,4 +23,5 @@ const pointerOffSVG = "assets/vectors/pointer-off.svg";
 const clockArrowDownSVG = "assets/vectors/clock-arrow-down.svg";
 const clockArrowUpSVG = "assets/vectors/clock-arrow-up.svg";
 const clockFadingSVG = "assets/vectors/clock-fading.svg";
+const bikeSVG = "assets/vectors/bike.svg";
 const mapPinSVG = "assets/vectors/map-pin.svg";

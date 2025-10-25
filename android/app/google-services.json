@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "237556993058",
+    "project_id": "grownext-a20d4",
+    "storage_bucket": "grownext-a20d4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:237556993058:android:a68bc1b461da13cbc6ce7b",
+        "android_client_info": {
+          "package_name": "com.grownext.dev"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCqVpaBKVVtWFt66yPdjfaRlwygHKlfzhU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

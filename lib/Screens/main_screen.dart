@@ -1,6 +1,13 @@
+import 'package:flutter/scheduler.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:get/state_manager.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:grownext/Data/Controllers/home_controller.dart';
+import 'package:grownext/Data/theme/colors.dart';
+import 'package:grownext/service_location.dart';
+import 'package:grownext/widgets/attendance_dialog.dart';
 import 'package:grownext/widgets/buttom_navbar.dart';
+import 'package:logger/logger.dart';
 
 import '/Screens/error.dart';
 import '../Data/consts/app_string.dart';
@@ -13,22 +20,47 @@ class MainScreen extends GetView<HomeController> {
 
   @override
   Widget build(BuildContext context) {
+    SchedulerBinding.instance.addPostFrameCallback((_) async {
+      final isRunning = await FlutterBackgroundService().isRunning();
+      final notificationClicked =
+          sl<GetStorage>().read<bool>("notification_clicked") ?? false;
+      Logger().f(notificationClicked);
+      if (notificationClicked && isRunning) {
+        showModalBottomSheet(
+          isScrollControlled: true,
+          context: context,
+          builder: (context) => AttendanceDialog(),
+        );
+        sl<GetStorage>().remove("notification_clicked");
+      }
+    });
     return Scaffold(
       backgroundColor: Colors.white,
 
       extendBody: true,
 
       bottomNavigationBar: BottomWebViewControls(
-        onHome: () {},
+        onHome: () {
+          controller.goto(website);
+        },
         onTasks: () {
           print("object");
           controller.goto(tasksPage);
         },
-        checkInOut: () {},
+        checkInOut: () {
+          showModalBottomSheet(
+            isScrollControlled: true,
+            context: context,
+
+            builder: (context) => AttendanceDialog(),
+          );
+        },
         onCalendar: () {
           controller.goto(calendarPage);
         },
-        onMenu: () {},
+        onMenu: () {
+          controller.runJavascript("openMobileSidebar();");
+        },
       ),
 
       body: SafeArea(
@@ -46,6 +78,7 @@ class MainScreen extends GetView<HomeController> {
                   thirdPartyCookiesEnabled: true,
                 ),
                 onWebViewCreated: controller.onWebViewCreated,
+
                 onPermissionRequest: (controller, permissionRequest) =>
                     Future.value(
                       PermissionResponse(
@@ -54,9 +87,7 @@ class MainScreen extends GetView<HomeController> {
                       ),
                     ),
 
-                pullToRefreshController: PullToRefreshController(
-                  onRefresh: controller.refreshWebView,
-                ),
+                pullToRefreshController: controller.pullToRefreshController,
                 shouldOverrideUrlLoading: (controller, navigationAction) async {
                   return NavigationActionPolicy.ALLOW;
                 },

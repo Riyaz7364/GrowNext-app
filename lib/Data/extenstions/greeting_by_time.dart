@@ -1,6 +1,8 @@
+import 'package:timezone/timezone.dart' as tz;
+
 extension GreetingByTime on String {
   String greet() {
-    final hour = DateTime.now().hour;
+    final hour = tz.TZDateTime.now(tz.local).hour;
 
     String greeting;
     if (hour >= 5 && hour < 12) {

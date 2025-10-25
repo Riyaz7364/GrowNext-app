@@ -1,6 +1,8 @@
-extension DurationToAgo on DateTime {
+import 'package:timezone/timezone.dart' as tz;
+
+extension DurationToAgo on tz.TZDateTime {
   String toAgo() {
-    final difference = DateTime.now().difference(this);
+    final difference = tz.TZDateTime.now(tz.local).difference(this);
     if (difference.inSeconds < 60) {
       return 'just now';
     } else if (difference.inMinutes < 60) {
@@ -34,7 +36,7 @@ extension FirstWhereOrNullExtension<E> on Iterable<E> {
   }
 }
 
-extension FancyDateFormat on DateTime? {
+extension FancyDateFormat on tz.TZDateTime? {
   String toFancyDate() {
     if (this == null) return '';
     final day = this!.day;
@@ -80,7 +82,7 @@ String _daySuffix(int day) {
   }
 }
 
-extension DateTimeToAmPm on DateTime {
+extension DateTimeToAmPm on tz.TZDateTime {
   /// Converts DateTime to "hh:mm AM/PM" format
   String toAmPmString() {
     int hours = hour;

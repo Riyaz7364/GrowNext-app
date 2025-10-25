@@ -1,43 +1,56 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
+import 'package:android_intent_plus/android_intent.dart';
+import 'package:android_intent_plus/flag.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
-import 'package:get_x_storage/get_x_storage.dart';
-import 'package:grownext/Data/Controllers/auth_controller.dart';
+import 'package:get_storage/get_storage.dart';
+
 import 'package:grownext/Data/extenstions/duration_to_ago.dart';
 import 'package:grownext/Data/models/attendance_model.dart';
-import 'package:grownext/Data/models/user_model.dart';
+
 import 'package:grownext/Data/repositories/attendance_repo.dart';
 import 'package:grownext/Data/services/loading_service.dart';
+import 'package:grownext/Data/services/timezone_service.dart';
 import 'package:grownext/service_location.dart';
 
 import 'package:logger/logger.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:timezone/timezone.dart' as tz;
 
 class AttendanceController extends GetxController {
   final _logger = Logger();
+  static const String kClockInId = 'clock_in_id';
+  static const String kClockInTime = 'clock_in_time';
+  static const String kTotalDistanceKm = 'total_distance_km';
+  static const String kClockOutTime = 'clock_out_time';
+  static const String kWorkHoursTime = 'work_hours_time';
+  static const String kCreatedAt = 'created_at';
+  static const String kLastClockInId = 'last_clock_in_id';
+  static const Duration maxWorkDuration = Duration(hours: 12);
 
   // final AttendanceRepository _attendanceRepository = sl<AttendanceRepository>();
   final lastPosition = Rx<Position?>(null);
-  final totalDistanceKm = "".obs;
+  final totalDistanceKm = "00".obs;
   final localAreaName = "".obs;
   // Observable variables
   final RxBool isLoading = false.obs;
   final RxBool isCheckedIn = false.obs;
 
-  final checkInDateTime = Rx<DateTime?>(null);
-  final checkOutDateTime = Rx<DateTime?>(null);
+  final checkInDateTime = Rx<tz.TZDateTime?>(null);
+  final checkOutDateTime = Rx<tz.TZDateTime?>(null);
 
   final checkInTime = Rx<String?>(null);
   final checkOutTime = Rx<String?>(null);
   final workHoursTime = Rx<String?>(null);
+  final distanceKm = Rx<String?>(null);
 
   final elapsedTime = Duration(hours: 0, minutes: 0).obs;
-  final RxString todayCheckOut = ''.obs;
   final progressbarColor = Colors.blue;
   final RxString totalHoursToday = '0h 0m'.obs;
   final RxString currentStatus = 'Clock-in'.obs;
@@ -45,19 +58,28 @@ class AttendanceController extends GetxController {
   final RxString statusMessage = ''.obs;
   final RxDouble shiftProgress = 0.0.obs;
 
-  final RxInt currentWeekHours = 32.obs;
-  final RxInt currentMonthHours = 128.obs;
-  final RxDouble attendancePercentage = 95.5.obs;
   final service = FlutterBackgroundService();
 
   StreamSubscription<dynamic>? streamSubscription;
 
+  GetStorage get _storage => sl<GetStorage>();
+
+  void _debugStorageState() {
+    _logger.d('=== GetStorage Debug ===');
+    _logger.d('Storage Container: ${kStorageContainer}');
+    _logger.d('Clock-in ID: ${_storage.read<String>(kClockInId)}');
+    _logger.d('Clock-in Time: ${_storage.read<String>(kClockInTime)}');
+    _logger.d('Last Clock-in ID: ${_storage.read<String>(kLastClockInId)}');
+    _logger.d('Created At: ${_storage.read<String>(kCreatedAt)}');
+    _logger.d('All Keys: ${_storage.getKeys()}');
+    _logger.d('========================');
+  }
+
   @override
   void onInit() {
-    // TODO: implement onInit
     super.onInit();
-    updateAttendance();
 
+    updateAttendance();
     service.on('update').listen((event) {
       if (event != null) {
         final runningSeconds = event['runningSeconds'];
@@ -68,60 +90,227 @@ class AttendanceController extends GetxController {
     });
 
     service.on("PosUpdate").listen((event) {
-      if (event != null) {
+      if (event != null &&
+          event['distanceKm'] != null &&
+          event['lastPosition'] != null) {
         final distanceKm = event['distanceKm'];
-        final lastPos = Position.fromMap(event['lastPosition']);
-        _logger.f(lastPos);
+        lastPosition.value = Position.fromMap(event['lastPosition']);
         totalDistanceKm.value = distanceKm.toString();
+      } else {
+        _logger.f(event);
       }
     });
+  }
+
+  Future<bool> _checkAndRequestPermissions() async {
+    try {
+      // Check location permission
+      var locationStatus = await Permission.location.status;
+      if (!locationStatus.isGranted) {
+        LoadingService.instance.hide();
+        locationStatus = await Permission.location.request();
+        if (!locationStatus.isGranted) {
+          Fluttertoast.showToast(msg: "Location permission is required");
+          return false;
+        }
+      }
+
+      // Check background location permission for Android
+      if (Platform.isAndroid) {
+        var backgroundLocation = await Permission.locationAlways.status;
+        if (!backgroundLocation.isGranted) {
+          LoadingService.instance.hide();
+          backgroundLocation = await Permission.locationAlways.request();
+          if (!backgroundLocation.isGranted) {
+            LoadingService.instance.hide();
+            Fluttertoast.showToast(
+              msg: "Background location permission is required",
+            );
+            return false;
+          }
+        }
+      }
+
+      // Check notification permission
+      var notificationStatus = await Permission.notification.status;
+      if (!notificationStatus.isGranted) {
+        LoadingService.instance.hide();
+        notificationStatus = await Permission.notification.request();
+        if (!notificationStatus.isGranted) {
+          LoadingService.instance.hide();
+          Fluttertoast.showToast(msg: "Notification permission is required");
+          return false;
+        }
+      }
+
+      // Request ignore battery optimization
+      if (Platform.isAndroid) {
+        final ignoreBatteryStatus =
+            await Permission.ignoreBatteryOptimizations.status;
+        if (!ignoreBatteryStatus.isGranted) {
+          // First try the permission request
+          final result = await Permission.ignoreBatteryOptimizations.request();
+          if (!result.isGranted) {
+            LoadingService.instance.hide();
+            // Show dialog to explain and redirect to settings
+            final dialogResult = await Get.dialog<bool>(
+              AlertDialog(
+                title: Text('Battery Optimization Required'),
+                content: Text(
+                  'For reliable background tracking, you must disable battery optimization for GrowNext App. Please open settings and disable battery optimization to continue.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      Get.back(result: false);
+                    },
+                    child: Text('Cancel'),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      final intent = AndroidIntent(
+                        action:
+                            'android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS',
+                        data: 'package:com.grownext.dev',
+                        flags: <int>[Flag.FLAG_ACTIVITY_NEW_TASK],
+                      );
+                      await intent.launch();
+                      Get.back(result: true);
+                    },
+                    child: Text('Open Settings'),
+                  ),
+                ],
+              ),
+              barrierDismissible: false,
+            );
+
+            // If user opened settings, check the permission again
+            if (dialogResult == true) {
+              // Wait a bit to let them change the setting
+              await Future.delayed(Duration(seconds: 2));
+              final finalCheck =
+                  await Permission.ignoreBatteryOptimizations.status;
+              if (!finalCheck.isGranted) {
+                LoadingService.instance.hide();
+                Fluttertoast.showToast(
+                  msg: "Battery optimization must be disabled to clock in",
+                  toastLength: Toast.LENGTH_LONG,
+                );
+                return false;
+              }
+            } else {
+              // User cancelled
+              LoadingService.instance.hide();
+              Fluttertoast.showToast(
+                msg: "Battery optimization must be disabled to clock in",
+                toastLength: Toast.LENGTH_LONG,
+              );
+              return false;
+            }
+          }
+        }
+      }
+
+      return true;
+    } catch (e) {
+      _logger.e('Error checking permissions: $e');
+      Fluttertoast.showToast(msg: "Error checking permissions");
+      return false;
+    }
   }
 
   void checkIn() async {
     LoadingService.instance.show();
     try {
+      // Check all required permissions first
+      final permissionsGranted = await _checkAndRequestPermissions();
+      if (!permissionsGranted) {
+        LoadingService.instance.hide();
+        return;
+      }
+
+      final savedClockInId = _storage.read<String>(kClockInId);
+      _logger.d('Current stored clockInId: $savedClockInId');
+
+      // Prevent double clock-in
+      if (isCheckedIn.value || savedClockInId != null) {
+        Fluttertoast.showToast(msg: "You're already checked in!");
+        return;
+      }
+
       errorMessage.value = '';
       statusMessage.value = '';
-
       _logger.d('Checking in...');
-      final user = sl<UserModel>();
-      // Get current position
-      final position = await determinePosition();
 
-      // Create attendance record
+      final position = await determinePosition();
+      final now = sl<TimezoneService>().now();
+      final createdAt = now;
       final newAttendance = AttendanceModel(
-        id: user.id,
-        startTime: DateTime.now(),
+        startTime: now,
         startLat: position.latitude,
         startLng: position.longitude,
-        clientCreatedAt: DateTime.timestamp(),
+        clientCreatedAt: createdAt,
       );
 
       final response = await sl<IAttendanceRepository>().clockIn([
         newAttendance,
       ]);
-      return;
-      // Check if already checked in
-      final isAlreadyCheckedIn = await updateAttendance();
-      if (isAlreadyCheckedIn == true) {
-        Fluttertoast.showToast(msg: "You're already checked in!");
-        return;
+
+      // Save the clock-in ID and time
+      if (response.results?.isNotEmpty == true) {
+        final result = response.results![0];
+
+        // Check if the operation was skipped
+        if (result.status == 'skipped') {
+          _logger.w(
+            'Clock-in was skipped by server - possibly already clocked in',
+          );
+          Fluttertoast.showToast(
+            msg: "Already clocked in or clock-in skipped",
+            toastLength: Toast.LENGTH_LONG,
+          );
+          return; // Don't update UI state if skipped
+        }
+
+        if (result.id != null) {
+          final clockInId = result.id!;
+          await _storage.write(kClockInId, clockInId);
+          await _storage.write(kClockInTime, now.toIso8601String());
+          await _storage.write(kCreatedAt, createdAt.toIso8601String());
+
+          // Verify write was successful
+          final verifyId = _storage.read<String>(kClockInId);
+          final verifyTime = _storage.read<String>(kClockInTime);
+          checkInTime.value = now.toAmPmString();
+          _logger.d('Saved clockInId: $clockInId, Verified: $verifyId');
+          _logger.d(
+            'Saved clockInTime: ${now.toIso8601String()}, Verified: $verifyTime',
+          );
+          _logger.d('All keys after save: ${_storage.getKeys()}');
+
+          if (verifyId == null) {
+            throw Exception("Failed to save clock-in ID to storage");
+          }
+        } else {
+          throw Exception("No clock-in ID received from server");
+        }
+      } else {
+        throw Exception("No results received from server");
       }
 
-      checkInDateTime.value = newAttendance.startTime;
+      checkInDateTime.value = now;
       isCheckedIn.value = true;
       currentStatus.value = 'Clock-out';
+      // Don't clear checkInTime - it was already set above
+      checkOutTime.value = null;
+      workHoursTime.value = null;
+      elapsedTime.value = Duration.zero;
+      _storage.remove("running_timer");
 
-      // Persist locally
-      sl<GetXStorage>().write(
-        key: "check_in",
-        value: checkInDateTime.value!.toAmPmString(),
-      );
-
-      Fluttertoast.showToast(msg: "You clock-in successfully");
+      Fluttertoast.showToast(msg: "Clocked-in successfully.");
 
       // Start background location tracking
-      startBackgroundTracking();
+      await startBackgroundTracking();
     } catch (e, stack) {
       _logger.f(e);
       _logger.f(stack);
@@ -135,49 +324,76 @@ class AttendanceController extends GetxController {
     LoadingService.instance.show();
     try {
       if (!isCheckedIn.value || checkInDateTime.value == null) {
-        Fluttertoast.showToast(msg: "You are not clocked-in yet");
+        Fluttertoast.showToast(msg: "You are not clocked-in");
+        return;
+      }
+
+      final clockInId = _storage.read<String>(kClockInId);
+      if (clockInId == null) {
+        Fluttertoast.showToast(msg: "No active clock-in session found");
         return;
       }
 
       _logger.d('Clocking out...');
-
       final position = await determinePosition();
+      final now = sl<TimezoneService>().now();
+      final duration = now.difference(checkInDateTime.value!);
 
-      checkOutDateTime.value = DateTime.now();
+      // Read created_at as String and parse it, or use current time
+      final createdAtStr = _storage.read<String>(kCreatedAt);
+      final createdAt = createdAtStr != null
+          ? sl<TimezoneService>().safeParse(createdAtStr)
+          : sl<TimezoneService>().now();
 
-      // Create attendance record
       final attendance = AttendanceModel(
-        endTime: checkOutDateTime.value,
+        id: clockInId,
+        endTime: now,
         endLat: position.latitude,
         endLng: position.longitude,
+        duration: duration.inSeconds.toDouble(),
+        clientCreatedAt: createdAt,
       );
 
-      // Optionally save to API
-      // await sl<IAttendanceRepository>().clockIn(attendance);
+      final response = await sl<IAttendanceRepository>().clockOut(attendance);
 
-      // Persist locally
+      // Check if the operation was skipped
+      if (response.results?.isNotEmpty == true) {
+        final result = response.results![0];
+        if (result.status == 'skipped') {
+          _logger.w(
+            'Clock-out was skipped by server - possibly already clocked out',
+          );
+          Fluttertoast.showToast(
+            msg: "Already clocked out or clock-out skipped",
+            toastLength: Toast.LENGTH_LONG,
+          );
+          // Still clear local state even if skipped
+        }
+      }
 
-      final workingDuration = checkOutDateTime.value!.difference(
-        checkInDateTime.value!,
-      );
+      // Clear active session
+      _logger.w('REMOVING clock-in data after successful checkout');
+      _logger.d('Keys before removal: ${_storage.getKeys()}');
+      await _storage.remove(kClockInId); // Remove active clock-in ID
+      await _storage.remove(kCreatedAt); // Remove Created at
+      _logger.d('Keys after removal: ${_storage.getKeys()}');
 
-      sl<GetXStorage>().write(
-        key: "check_out",
-        value: checkOutDateTime.value!.toAmPmString(),
-      );
-      sl<GetXStorage>().write(
-        key: "work_hours",
-        value: workingDuration.inHours,
-      );
+      // Save as last session
+      await _storage.write(kLastClockInId, clockInId);
+
+      // Update local state
+      checkOutDateTime.value = now;
+      checkOutTime.value = now.toAmPmString();
+      await _storage.write(kClockOutTime, now.toAmPmString());
+      await _storage.write(kWorkHoursTime, _formatDuration(duration));
 
       isCheckedIn.value = false;
-      currentStatus.value = 'Clocked-out';
+      currentStatus.value = 'Clock-in';
 
       Fluttertoast.showToast(
-        msg:
-            "Clocked-out successfully.\nWorked: ${_formatDuration(workingDuration)}",
+        msg: "Clocked-out successfully.\nWorked: ${_formatDuration(duration)}.",
       );
-
+      calculateWorkingHours();
       stopBackgroundTracking();
     } catch (e, stack) {
       _logger.f(e);
@@ -204,7 +420,8 @@ class AttendanceController extends GetxController {
     final duration = checkOutDateTime.value!.difference(checkInDateTime.value!);
     final hours = duration.inHours;
     final minutes = duration.inMinutes.remainder(60);
-
+    workHoursTime.value = _formatDuration(duration);
+    _storage.write(kWorkHoursTime, _formatDuration(duration));
     print("Working hours: $hours hours $minutes minutes");
   }
 
@@ -230,69 +447,73 @@ class AttendanceController extends GetxController {
   }
 
   Future<bool?> updateAttendance() async {
-    bool isRunning = await service.isRunning();
-
-    sl<GetXStorage>().listenKey(
-      key: "check_in",
-      callback: (checkIn) => checkInTime.value = checkIn,
-    );
-    sl<GetXStorage>().listenKey(
-      key: "check_out",
-      callback: (checkOut) => checkOutTime.value = checkOut,
-    );
-    sl<GetXStorage>().listenKey(
-      key: "work_hours",
-      callback: (workHours) => workHoursTime.value = workHours,
-    );
-
-    if (checkInDateTime.value != null) {
-      final isSameDay =
-          checkInDateTime.value!.difference(DateTime.now()).inDays < 1;
-      if (isSameDay) {
-        isCheckedIn.value = false;
-        currentStatus.value = 'Already Check-out';
-        statusMessage.value = 'You already check-in/out today';
-        return false;
+    _logger.d('Updating attendance state...');
+    try {
+      final isServiceRunning = await service.isRunning();
+      if (!isServiceRunning) {
+        _logger.d('Background service is not running');
+        cleanUp();
       }
-    }
 
-    if (isRunning) {
-      isCheckedIn.value = true;
-      currentStatus.value = 'Punch out';
-      statusMessage.value = 'Check-in successful';
-      return true;
-    }
+      // Check if we have an active clock-in ID
+      final savedClockInId = _storage.read<String>(kClockInId);
+      final savedClockInTime = _storage.read<String>(kClockInTime);
+      final savedTotalDistanceKm = _storage.read<double>(kTotalDistanceKm);
 
-    return null;
+      // If we have saved state, validate and restore it
+      if (savedClockInId != null && savedClockInTime != null) {
+        final clockInTime = sl<TimezoneService>().safeParse(savedClockInTime);
+        final duration = sl<TimezoneService>().now().difference(clockInTime);
+
+        _logger.d(
+          'Found saved clock-in state: $savedClockInId at $clockInTime',
+        );
+
+        // Valid clock-in exists - restore complete state
+        isCheckedIn.value = true;
+        currentStatus.value = 'Clock-out';
+        checkInDateTime.value = clockInTime;
+        elapsedTime.value = duration;
+        checkInTime.value = clockInTime.toAmPmString();
+        totalDistanceKm.value = (savedTotalDistanceKm ?? 0.0).toStringAsFixed(
+          2,
+        );
+
+        _logger.d('Attendance state restored successfully.');
+        return true;
+      } else {
+        if (isServiceRunning) {
+          stopBackgroundTracking();
+        }
+      }
+
+      isCheckedIn.value = false;
+      currentStatus.value = 'Clock-in';
+      statusMessage.value = '';
+      checkInDateTime.value = null;
+      elapsedTime.value = Duration.zero;
+
+      _logger.d('No active clock-in found');
+      return false;
+    } catch (e, stackTrace) {
+      _logger.e('Error updating attendance state: $e\n$stackTrace');
+      return null;
+    }
   }
 
-  void startBackgroundTracking() async {
+  Future<void> startBackgroundTracking() async {
     bool isRunning = await service.isRunning();
     _logger.f("startBackgroundTracking $isRunning");
 
     if (!isRunning) {
       await service.startService();
-    } else {}
+      _logger.d("Background service started");
+    }
   }
 
   void stopBackgroundTracking() async {
-    final service = FlutterBackgroundService();
     service.invoke('stopService');
   }
-
-  // void runStreamDuration() {
-  //   elapsedTime.value = Duration.zero;
-  //   if (streamSubscription != null) streamSubscription!.cancel();
-  //   final now = DateTime.now();
-  //   final differenceInSeconds = now.difference(checkInTime.value);
-  //   elapsedTime.value = differenceInSeconds;
-  //   // Start a periodic timer to update the elapsed time
-  //   streamSubscription = Stream.periodic(Duration(seconds: 1)).listen((_) {
-  //     if (isCheckedIn.value) {
-  //       elapsedTime.value += Duration(seconds: 1);
-  //     }
-  //   });
-  // }
 
   Future<Position> determinePosition() async {
     bool serviceEnabled;
@@ -313,317 +534,12 @@ class AttendanceController extends GetxController {
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return [h, m, s];
   }
+
+  void cleanUp() {
+    _storage.remove(kClockInId);
+    _storage.remove(kClockInTime);
+    _storage.remove(kCreatedAt);
+    isCheckedIn.value = false;
+    currentStatus.value = 'Clock-in';
+  }
 }
-//   void workingProgress(List<Duration> shift) {
-//     final now = DateTime.now();
-//     final baseTime = Duration(hours: now.hour, minutes: now.minute);
-
-//     final start = shift[0];
-//     final end = shift[1];
-
-//     // Calculate how much time has passed since shift started
-//     final timePassed = baseTime - start;
-
-//     // Clamp: if before start, it's 0
-//     if (timePassed.isNegative) {
-//       _logger.d("Working progress: 0 hours (shift not started yet)");
-//       return;
-//     }
-
-//     // Clamp: if after end, cap at total shift duration
-//     final totalShift = end - start;
-//     final effectivePassed = timePassed > totalShift ? totalShift : timePassed;
-//     final progress =
-//         (timePassed.inMilliseconds / totalShift.inMilliseconds).clamp(0, 1)
-//             as double;
-//     shiftProgress.value = progress;
-//     _logger.d(
-//       "Working progress: ${effectivePassed.inHours}h "
-//       "${effectivePassed.inMinutes.remainder(60)}m "
-//       "out of ${totalShift.inHours}h "
-//       "Difference ${totalShift.compareTo(effectivePassed)}h "
-//       "Progress: ${progress * 100}%",
-//     );
-//   }
-
-//   // Attendance history
-//   final RxList<Map<String, dynamic>> attendanceHistory = <Map<String, dynamic>>[
-//     {
-//       'date': '2025-08-13',
-//       'checkIn': '09:00',
-//       'checkOut': '18:00',
-//       'totalHours': '8h 0m',
-//       'status': 'present',
-//     },
-//     {
-//       'date': '2025-08-12',
-//       'checkIn': '09:15',
-//       'checkOut': '18:00',
-//       'totalHours': '7h 45m',
-//       'status': 'present',
-//     },
-//     {
-//       'date': '2025-08-11',
-//       'checkIn': '10:30',
-//       'checkOut': '18:30',
-//       'totalHours': '8h 0m',
-//       'status': 'late',
-//     },
-//     {
-//       'date': '2025-08-10',
-//       'checkIn': '',
-//       'checkOut': '',
-//       'totalHours': '0h 0m',
-//       'status': 'absent',
-//     },
-//     {
-//       'date': '2025-08-09',
-//       'checkIn': '09:00',
-//       'checkOut': '17:30',
-//       'totalHours': '7h 30m',
-//       'status': 'present',
-//     },
-//   ].obs;
-
-//   // Weekly attendance chart data
-//   final RxList<Map<String, dynamic>> weeklyData = <Map<String, dynamic>>[
-//     {'day': 'Mon', 'hours': 8.0},
-//     {'day': 'Tue', 'hours': 7.5},
-//     {'day': 'Wed', 'hours': 8.0},
-//     {'day': 'Thu', 'hours': 0.0},
-//     {'day': 'Fri', 'hours': 8.5},
-//     {'day': 'Sat', 'hours': 0.0},
-//     {'day': 'Sun', 'hours': 0.0},
-//   ].obs;
-
-//   DateTime? checkInTime;
-//   DateTime? checkOutTime;
-
-//   @override
-//   void onInit() {
-//     super.onInit();
-//   }
-
-//   void loadTodayAttendance(AttendanceModel? attendanceModel) async {
-//     // _logger.d('Loading today attendance...${attendanceModel!.toJson()}');
-//     if (attendanceModel == null) return;
-
-//     if (attendanceModel.outTime != null &&
-//         attendanceModel.outTime!.inSeconds != 0) {
-//       currentStatus.value = 'Punch Out';
-//       streamSubscription?.cancel();
-//       final progress = sl<GetStorage>().read<double>("shift_progress");
-//       final seconds = sl<GetStorage>().read<int>("elapsed_time");
-//       elapsedTime.value = Duration(seconds: seconds ?? 0);
-//       shiftProgress.value = progress ?? 0.0;
-//       isCheckedIn.value = false;
-//       currentStatus.value = "You already punched out";
-//       progressbarColor.value = Colors.red;
-
-//       return;
-//     }
-
-//     isCheckedIn.value = true;
-
-//     if (attendanceModel.inTime != null) {
-//       currentStatus.value = "Punch Out";
-
-//       final inTimeStr = attendanceModel.inTime;
-//       todayCheckIn.value = inTimeStr!; // Format HH:MM
-
-//       // Update checkInTime for calculations
-//       final dateStr = attendanceModel.attendanceDate!.toHumanReadable();
-//       // throw inTimeStr;
-//       checkInTime = DateTime.parse('$dateStr $inTimeStr');
-//     } else {
-//       checkInTime = DateTime.now();
-//       todayCheckIn.value = Duration.zero;
-//     }
-
-//     runStreamDuration();
-//   }
-
-//   void checkIn() async {
-//     _logger.f(sl<GetStorage>().read<int>("elapsed_time"));
-//     if (isCheckedIn.value) {
-//       Fluttertoast.showToast(
-//         msg: 'Error: You are already checked in',
-//         toastLength: Toast.LENGTH_SHORT,
-//         gravity: ToastGravity.BOTTOM,
-//         backgroundColor: Colors.red[100],
-//         textColor: Colors.red[800],
-//       );
-//       return;
-//     }
-
-//     try {
-//       isLoading.value = true;
-//       errorMessage.value = '';
-//       statusMessage.value = '';
-
-//       _logger.d('Checking in...');
-
-//       final response = await _attendanceRepository.checkIn();
-//       // _logger.d('Check-in response: $response');
-
-//       isCheckedIn.value = true;
-//       currentStatus.value = 'Punch out';
-//       statusMessage.value = 'Check-in successful';
-
-//       // Get the check-in time from the response
-//       if (response.inTime != null) {
-//         final inTimeStr = response.inTime;
-//         todayCheckIn.value = inTimeStr!; // Format HH:MM
-
-//         // Update checkInTime for calculations
-//         final dateStr = response.attendanceDate!.toHumanReadable();
-//         // throw inTimeStr;
-//         checkInTime = DateTime.parse('$dateStr $inTimeStr');
-//       } else {
-//         checkInTime = DateTime.now();
-//         todayCheckIn.value = Duration.zero;
-//       }
-
-//       // Get.snackbar(
-//       //   'Success',
-//       //   statusMessage.value,
-//       //   snackPosition: SnackPosition.BOTTOM,
-//       //   backgroundColor: Colors.green[100],
-//       //   colorText: Colors.green[800],
-//       // );
-
-//       runStreamDuration();
-//     } catch (e) {
-//       // _logger.e('Error during check-in: $e');
-//       errorMessage.value = AppUtils.extractErrorMessage(e);
-//       _logger.e(errorMessage.value);
-
-//       Fluttertoast.showToast(
-//         msg: AppUtils.extractErrorMessage(e),
-//         toastLength: Toast.LENGTH_SHORT,
-//         gravity: ToastGravity.BOTTOM,
-//         backgroundColor: Colors.red[100],
-//         textColor: Colors.red[800],
-//       );
-//     } finally {
-//       isLoading.value = false;
-//     }
-//   }
-
-//   void checkOut() async {
-//     if (!isCheckedIn.value) {
-//       Get.snackbar('Error', 'You need to check in first');
-//       return;
-//     }
-
-//     try {
-//       isLoading.value = true;
-//       errorMessage.value = '';
-//       statusMessage.value = '';
-
-//       _logger.d('Checking out...');
-
-//       final response = await _attendanceRepository.checkOut();
-//       _logger.d('Check-out response: $response');
-
-//       isCheckedIn.value = false;
-//       currentStatus.value = 'Punched Out';
-//       statusMessage.value = 'Punched-out successful';
-
-//       if (response.inTime != null) {
-//         checkInTime = null;
-//         progressbarColor.value = AppColors.error;
-//         sl<GetStorage>().write("elapsed_time", elapsedTime.value.inSeconds);
-//         sl<GetStorage>().write("shift_progress", shiftProgress.value);
-//         streamSubscription?.cancel();
-//       }
-//     } catch (e) {
-//       _logger.e('Error during check-out: $e');
-//       errorMessage.value = e.toString();
-//       Get.snackbar(
-//         'Error',
-//         'Failed to check out: $e',
-//         snackPosition: SnackPosition.BOTTOM,
-//         backgroundColor: Colors.red[100],
-//         colorText: Colors.red[800],
-//       );
-//     } finally {
-//       isLoading.value = false;
-//     }
-//   }
-
-//   String _getAttendanceStatus(Duration checkInTime) {
-//     // Assuming office starts at 9:00 AM
-//     final hour = checkInTime.inHours;
-//     final minute = checkInTime.inMinutes % 60;
-//     final seconds = checkInTime.inSeconds % 60;
-
-//     if (hour > 9 || (hour == 9 && minute > 15)) {
-//       return 'late';
-//     }
-//     return 'present';
-//   }
-
-//   Color getStatusColor(String status) {
-//     switch (status.toLowerCase()) {
-//       case 'present':
-//         return Colors.green;
-//       case 'late':
-//         return Colors.orange;
-//       case 'absent':
-//         return Colors.red;
-//       default:
-//         return Colors.grey;
-//     }
-//   }
-
-//   String getStatusText(String status) {
-//     switch (status.toLowerCase()) {
-//       case 'present':
-//         return 'Present';
-//       case 'late':
-//         return 'Late';
-//       case 'absent':
-//         return 'Absent';
-//       default:
-//         return 'Unknown';
-//     }
-//   }
-
-//   IconData getStatusIcon(String status) {
-//     switch (status.toLowerCase()) {
-//       case 'present':
-//         return Icons.check_circle;
-//       case 'late':
-//         return Icons.access_time;
-//       case 'absent':
-//         return Icons.cancel;
-//       default:
-//         return Icons.help;
-//     }
-//   }
-
-//   void refreshAttendance() {
-//     // Simulate refreshing attendance data
-//     Get.snackbar(
-//       'Refreshed',
-//       'Attendance data updated',
-//       snackPosition: SnackPosition.BOTTOM,
-//     );
-//   }
-
-//   void viewAttendanceReport() {
-//     Get.toNamed('/attendance/report');
-//   }
-
-//   void requestAttendanceCorrection() {
-//     Get.toNamed('/attendance/correction');
-//   }
-
-//   @override
-//   void onClose() {
-//     // TODO: implement onClose
-//     super.onClose();
-//     streamSubscription?.cancel();
-//   }
-// }

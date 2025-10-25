@@ -1,27 +1,39 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
-import 'package:get_x_storage/get_x_storage.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:grownext/Data/api.dart';
 import 'package:grownext/Data/models/user_model.dart';
 import 'package:grownext/Data/repositories/attendance_repo.dart';
 import 'package:grownext/Data/repositories/auth_repo.dart';
+import 'package:grownext/Data/services/timezone_service.dart';
+import 'package:grownext/firebase_options.dart';
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
 final sl = GetIt.instance;
-final box = GetXStorage();
+const String kStorageContainer = 'grownext_storage';
 
 Future<void> loadSL() async {
-  sl.registerFactory<GetXStorage>(() => box);
+  await GetStorage.init(kStorageContainer);
+  final box = GetStorage(kStorageContainer);
+
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+
+  sl.registerLazySingleton<TimezoneService>(() => TimezoneService());
+
+  sl.registerLazySingleton<GetStorage>(() => box);
   sl.registerLazySingleton<IAttendanceRepository>(
     () => AttendanceRepositoryImpl(),
   );
   sl.registerLazySingleton<IAuthRepository>(() => AuthRepositoryImpl());
 
   sl.registerCachedFactory<UserModel>(() {
-    final userData = box.read(key: 'user');
+    final userData = box.read('user');
     if (userData == null) return UserModel.empty();
 
     // If saved as JSON string
@@ -35,7 +47,7 @@ Future<void> loadSL() async {
 
   // Serup Dio -> base url and bearer token
   sl.registerFactory<Dio>(() {
-    final sessionTOken = box.read(key: "token") ?? "";
+    final sessionTOken = box.read("token") ?? "";
     return Dio(
         BaseOptions(
           validateStatus: (status) => true,

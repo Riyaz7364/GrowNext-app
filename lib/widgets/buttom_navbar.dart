@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gap/gap.dart';
+import 'package:get/get.dart';
+import 'package:grownext/Data/Controllers/home_controller.dart';
 import 'package:grownext/Data/consts/app_string.dart';
 import 'package:grownext/Data/theme/colors.dart';
 import 'package:grownext/widgets/attendance_dialog.dart';
@@ -24,6 +26,7 @@ class BottomWebViewControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final controller = Get.find<HomeController>();
     return Stack(
       clipBehavior: Clip.none,
       alignment: Alignment.center,
@@ -112,33 +115,30 @@ class BottomWebViewControls extends StatelessWidget {
         Positioned(
           top: -20,
           child: GestureDetector(
-            onTap: () {
-              showModalBottomSheet(
-                isScrollControlled: true,
-                context: context,
+            onTap: checkInOut,
+            child: Obx(
+              () => Container(
+                height: 60,
+                width: 60,
+                decoration: BoxDecoration(
+                  color: controller.attendanceController.isCheckedIn.value
+                      ? Colors.red
+                      : primaryColor,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 6,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: SvgPicture.asset(
+                  alarmClockSVG,
 
-                builder: (context) => AttendanceDialog(),
-              );
-            },
-            child: Container(
-              height: 60,
-              width: 60,
-              decoration: BoxDecoration(
-                color: primaryColor,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 6,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+                  colorFilter: ColorFilter.mode(Colors.white, BlendMode.srcIn),
+                ).paddingAll(15),
               ),
-              child: SvgPicture.asset(
-                alarmClockSVG,
-
-                colorFilter: ColorFilter.mode(Colors.white, BlendMode.srcIn),
-              ).paddingAll(15),
             ),
           ),
         ),
