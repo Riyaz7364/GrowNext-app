@@ -1,16 +1,15 @@
-# grownext
+# GrowNext - Employee Onboarding & Attendance App
 
-A new Flutter project.
+Flutter app that wraps existing website in WebView and extends it with native Flutter features.
 
-## Getting Started
+## Features
+- Employee Onboarding / Offboarding workflow
+- Check-in / Check-out attendance
+- WebView integration to control website + native Flutter bridge
+- Firebase integration
 
-This project is a starting point for a Flutter application.
+## Tech Stack
+Flutter, Dart, webview_flutter, Firebase, REST APIs
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## How it works
+Hybrid app - loads company website in WebView and adds native onboarding/check-in-out functionality from Flutter side.
